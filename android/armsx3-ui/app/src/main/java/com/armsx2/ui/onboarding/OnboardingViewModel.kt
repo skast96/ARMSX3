@@ -97,8 +97,14 @@ class OnboardingViewModel(application: Application) : AndroidViewModel(applicati
         )
     }
 
+    /** Install from a document picked with the system file chooser. */
+    fun installFirmware(uri: Uri) {
+        val doc = DocumentFile.fromSingleUri(getApplication(), uri)
+        installFirmware(FirmwareCandidate(doc?.name ?: "PS3UPDAT.PUP", uri, doc?.length() ?: 0L))
+    }
+
     /**
-     * Install one of the scanned firmware files.
+     * Install a firmware file.
      *
      * The core takes a raw fd, not a path -- the file lives behind SAF where there
      * is no POSIX path to hand it. The descriptor must outlive the call, so it is
@@ -106,12 +112,6 @@ class OnboardingViewModel(application: Application) : AndroidViewModel(applicati
      *
      * Slow (PUP unpack, then the system modules), so it runs off the main thread.
      */
-    /** Install from a document picked with the system file chooser. */
-    fun installFirmware(uri: Uri) {
-        val doc = DocumentFile.fromSingleUri(getApplication(), uri)
-        installFirmware(FirmwareCandidate(doc?.name ?: "PS3UPDAT.PUP", uri, doc?.length() ?: 0L))
-    }
-
     fun installFirmware(candidate: FirmwareCandidate) {
         if (state.value.busy) return
 
