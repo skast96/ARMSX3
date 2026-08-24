@@ -103,92 +103,92 @@ fun BiosManagerScreen(onBack: () -> Unit, game: com.armsx2.GameInfo? = null) {
     // it this screen drew on the raw window background, so the headline rendered
     // near-black on a dark backdrop and was unreadable.
     ArmsBackdrop {
-    Column(
-        modifier = Modifier
-            .fillMaxSize()
-            .verticalScroll(rememberScrollState())
-            .padding(16.dp),
-        verticalArrangement = Arrangement.spacedBy(12.dp),
-    ) {
-        Text(
-            str("setup.page.bios.title"),
-            style = MaterialTheme.typography.headlineSmall,
-            fontWeight = FontWeight.Bold,
-            color = MaterialTheme.colorScheme.onSurface,
-        )
-
-        Surface(
-            shape = RoundedCornerShape(16.dp),
-            color = MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.5f),
-            modifier = Modifier.fillMaxWidth(),
+        Column(
+            modifier = Modifier
+                .fillMaxSize()
+                .verticalScroll(rememberScrollState())
+                .padding(16.dp),
+            verticalArrangement = Arrangement.spacedBy(12.dp),
         ) {
-            Column(Modifier.padding(16.dp), verticalArrangement = Arrangement.spacedBy(6.dp)) {
-                Text(
-                    if (status == FirmwareStatus.None) str("bios.firmware.notInstalled")
-                    else str("setup.status.installed"),
-                    style = MaterialTheme.typography.titleMedium,
-                    color = MaterialTheme.colorScheme.primary,
-                )
-                // Version comes from the installed dev_flash, so this reflects the
-                // firmware actually in use rather than the last file picked.
-                version?.takeIf { it.isNotBlank() }?.let {
+            Text(
+                str("setup.page.bios.title"),
+                style = MaterialTheme.typography.headlineSmall,
+                fontWeight = FontWeight.Bold,
+                color = MaterialTheme.colorScheme.onSurface,
+            )
+
+            Surface(
+                shape = RoundedCornerShape(16.dp),
+                color = MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.5f),
+                modifier = Modifier.fillMaxWidth(),
+            ) {
+                Column(Modifier.padding(16.dp), verticalArrangement = Arrangement.spacedBy(6.dp)) {
                     Text(
-                        it,
-                        style = MaterialTheme.typography.bodyMedium,
+                        if (status == FirmwareStatus.None) str("bios.firmware.notInstalled")
+                        else str("setup.status.installed"),
+                        style = MaterialTheme.typography.titleMedium,
+                        color = MaterialTheme.colorScheme.primary,
+                    )
+                    // Version comes from the installed dev_flash, so this reflects the
+                    // firmware actually in use rather than the last file picked.
+                    version?.takeIf { it.isNotBlank() }?.let {
+                        Text(
+                            it,
+                            style = MaterialTheme.typography.bodyMedium,
+                            color = MaterialTheme.colorScheme.onSurfaceVariant,
+                        )
+                    }
+                    Text(
+                        str("setup.step.bios.description"),
+                        style = MaterialTheme.typography.bodySmall,
                         color = MaterialTheme.colorScheme.onSurfaceVariant,
                     )
                 }
+            }
+
+            message?.let {
                 Text(
-                    str("setup.step.bios.description"),
+                    it,
+                    color = MaterialTheme.colorScheme.error,
                     style = MaterialTheme.typography.bodySmall,
-                    color = MaterialTheme.colorScheme.onSurfaceVariant,
                 )
             }
-        }
 
-        message?.let {
-            Text(
-                it,
-                color = MaterialTheme.colorScheme.error,
-                style = MaterialTheme.typography.bodySmall,
-            )
-        }
-
-        if (busy) {
-            Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
-                CircularProgressIndicator()
-                Text(
-                    str("setup.firmware.installing"),
-                    style = MaterialTheme.typography.bodySmall,
-                    color = MaterialTheme.colorScheme.onSurfaceVariant,
-                )
+            if (busy) {
+                Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
+                    CircularProgressIndicator()
+                    Text(
+                        str("setup.firmware.installing"),
+                        style = MaterialTheme.typography.bodySmall,
+                        color = MaterialTheme.colorScheme.onSurfaceVariant,
+                    )
+                }
+            } else {
+                OutlinedButton(
+                    onClick = { safPicker.launch(arrayOf("*/*")) },
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .controllerFocusable(
+                            "firmware.install",
+                            RoundedCornerShape(13.dp),
+                            onConfirm = { safPicker.launch(arrayOf("*/*")) },
+                        ),
+                ) {
+                    Text(
+                        if (status == FirmwareStatus.None) str("setup.bios.selectTitle")
+                        else str("bios.firmware.reinstall"),
+                    )
+                }
             }
-        } else {
+
             OutlinedButton(
-                onClick = { safPicker.launch(arrayOf("*/*")) },
+                onClick = onBack,
                 modifier = Modifier
                     .fillMaxWidth()
-                    .controllerFocusable(
-                        "firmware.install",
-                        RoundedCornerShape(13.dp),
-                        onConfirm = { safPicker.launch(arrayOf("*/*")) },
-                    ),
+                    .controllerFocusable("firmware.back", RoundedCornerShape(13.dp), onConfirm = onBack),
             ) {
-                Text(
-                    if (status == FirmwareStatus.None) str("setup.bios.selectTitle")
-                    else str("bios.firmware.reinstall"),
-                )
+                Text(str("action.back"))
             }
         }
-
-        OutlinedButton(
-            onClick = onBack,
-            modifier = Modifier
-                .fillMaxWidth()
-                .controllerFocusable("firmware.back", RoundedCornerShape(13.dp), onConfirm = onBack),
-        ) {
-            Text(str("action.back"))
-        }
-    }
     }
 }

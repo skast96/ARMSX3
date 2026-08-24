@@ -99,7 +99,7 @@ fun OnboardingScreen(viewModel: OnboardingViewModel = viewModel()) {
                 context.contentResolver.takePersistableUriPermission(
                     u,
                     android.content.Intent.FLAG_GRANT_READ_URI_PERMISSION or
-                        android.content.Intent.FLAG_GRANT_WRITE_URI_PERMISSION,
+                            android.content.Intent.FLAG_GRANT_WRITE_URI_PERMISSION,
                 )
             }
             com.armsx2.runtime.MainActivityRuntime.resolveTreeUriToPosix(u.toString())
@@ -164,7 +164,8 @@ fun OnboardingScreen(viewModel: OnboardingViewModel = viewModel()) {
                 Row(Modifier.fillMaxSize(), horizontalArrangement = Arrangement.spacedBy(16.dp)) {
                     LandscapeHero(
                         page = state.page,
-                        modifier = Modifier.weight(0.92f).fillMaxHeight().padding(start = 8.dp, top = 16.dp, bottom = 16.dp),
+                        modifier = Modifier.weight(0.92f).fillMaxHeight()
+                            .padding(start = 8.dp, top = 16.dp, bottom = 16.dp),
                     )
                     Column(Modifier.weight(1.08f).fillMaxHeight().padding(end = 8.dp)) {
                         Spacer(Modifier.height(18.dp))
@@ -180,12 +181,19 @@ fun OnboardingScreen(viewModel: OnboardingViewModel = viewModel()) {
                                     AnimatedContentTransitionScope.SlideDirection.Right
                                 }
                                 (slideIntoContainer(direction, tween(320)) + fadeIn(tween(220))) togetherWith
-                                    (slideOutOfContainer(direction, tween(280)) + fadeOut(tween(180)))
+                                        (slideOutOfContainer(direction, tween(280)) + fadeOut(tween(180)))
                             },
                             label = "onboarding-landscape-page",
                         ) { page ->
                             PageViewport(compact = false) {
-                                WizardPage(page, state, viewModel, biosPicker = { firmwarePicker.launch(arrayOf("*/*")) }, folderPicker = { folderPicker.launch(null) }, onCustomStorage = onCustomStorage)
+                                WizardPage(
+                                    page,
+                                    state,
+                                    viewModel,
+                                    biosPicker = { firmwarePicker.launch(arrayOf("*/*")) },
+                                    folderPicker = { folderPicker.launch(null) },
+                                    onCustomStorage = onCustomStorage
+                                )
                             }
                         }
                         NavigationBar(
@@ -218,12 +226,19 @@ fun OnboardingScreen(viewModel: OnboardingViewModel = viewModel()) {
                                 AnimatedContentTransitionScope.SlideDirection.Right
                             }
                             (slideIntoContainer(direction, tween(320)) + fadeIn(tween(220))) togetherWith
-                                (slideOutOfContainer(direction, tween(280)) + fadeOut(tween(180)))
+                                    (slideOutOfContainer(direction, tween(280)) + fadeOut(tween(180)))
                         },
                         label = "onboarding-portrait-page",
                     ) { page ->
                         PageViewport(compact = true) {
-                            WizardPage(page, state, viewModel, biosPicker = { firmwarePicker.launch(arrayOf("*/*")) }, folderPicker = { folderPicker.launch(null) }, onCustomStorage = onCustomStorage)
+                            WizardPage(
+                                page,
+                                state,
+                                viewModel,
+                                biosPicker = { firmwarePicker.launch(arrayOf("*/*")) },
+                                folderPicker = { folderPicker.launch(null) },
+                                onCustomStorage = onCustomStorage
+                            )
                         }
                     }
                     NavigationBar(
@@ -538,7 +553,12 @@ private fun GamesPage(state: OnboardingUiState, onAdd: () -> Unit, onRemove: (St
                         Text("▦", color = MaterialTheme.colorScheme.primary, fontSize = 20.sp)
                         Spacer(Modifier.width(12.dp))
                         Text(label, modifier = Modifier.weight(1f), maxLines = 1, overflow = TextOverflow.Ellipsis)
-                        TextButton(onClick = { onRemove(raw) }) { Text(str("setup.button.remove"), color = MaterialTheme.colorScheme.error) }
+                        TextButton(onClick = { onRemove(raw) }) {
+                            Text(
+                                str("setup.button.remove"),
+                                color = MaterialTheme.colorScheme.error
+                            )
+                        }
                     }
                 }
             }
@@ -554,14 +574,30 @@ private fun ReadyPage(state: OnboardingUiState, compact: Boolean) {
     SetupPage(str("setup.button.applyFinish"), str("games.scanningRoms")) {
         if (compact) {
             Column(verticalArrangement = Arrangement.spacedBy(10.dp)) {
-                SummaryCard(str("setup.step.appData.title"), when (state.systemLocation) { StorageLocation.Internal -> str("setup.storageChooser.internalShort"); StorageLocation.SdCard -> str("setup.systemDir.sdCard"); StorageLocation.Custom -> str("setup.storageChooser.customShort") })
+                SummaryCard(
+                    str("setup.step.appData.title"), when (state.systemLocation) {
+                        StorageLocation.Internal -> str("setup.storageChooser.internalShort"); StorageLocation.SdCard -> str(
+                            "setup.systemDir.sdCard"
+                        ); StorageLocation.Custom -> str("setup.storageChooser.customShort")
+                    }
+                )
                 SummaryCard(str("setup.step.bios.title"), state.firmwareVersion ?: str("setup.status.notSelected"))
                 SummaryCard(str("setup.step.rom.title"), state.gameFolders.size.toString())
             }
         } else {
             Row(horizontalArrangement = Arrangement.spacedBy(12.dp)) {
-                SummaryCard(str("setup.step.appData.title"), when (state.systemLocation) { StorageLocation.Internal -> str("setup.storageChooser.internalShort"); StorageLocation.SdCard -> str("setup.systemDir.sdCard"); StorageLocation.Custom -> str("setup.storageChooser.customShort") }, Modifier.weight(1f))
-                SummaryCard(str("setup.step.bios.title"), state.firmwareVersion ?: str("setup.status.notSelected"), Modifier.weight(1f))
+                SummaryCard(
+                    str("setup.step.appData.title"), when (state.systemLocation) {
+                        StorageLocation.Internal -> str("setup.storageChooser.internalShort"); StorageLocation.SdCard -> str(
+                            "setup.systemDir.sdCard"
+                        ); StorageLocation.Custom -> str("setup.storageChooser.customShort")
+                    }, Modifier.weight(1f)
+                )
+                SummaryCard(
+                    str("setup.step.bios.title"),
+                    state.firmwareVersion ?: str("setup.status.notSelected"),
+                    Modifier.weight(1f)
+                )
                 SummaryCard(str("setup.step.rom.title"), state.gameFolders.size.toString(), Modifier.weight(1f))
             }
         }
@@ -573,7 +609,11 @@ private fun SetupPage(title: String, description: String, content: @Composable (
     Column(Modifier.fillMaxWidth()) {
         Text(title, style = MaterialTheme.typography.headlineMedium, color = MaterialTheme.colorScheme.onSurface)
         Spacer(Modifier.height(6.dp))
-        Text(description, style = MaterialTheme.typography.bodyLarge, color = MaterialTheme.colorScheme.onSurfaceVariant)
+        Text(
+            description,
+            style = MaterialTheme.typography.bodyLarge,
+            color = MaterialTheme.colorScheme.onSurfaceVariant
+        )
         Spacer(Modifier.height(24.dp))
         content()
     }
@@ -606,14 +646,23 @@ private fun ChoiceCard(
                 color = if (selected) MaterialTheme.colorScheme.primary.copy(alpha = 0.16f) else MaterialTheme.colorScheme.surface,
             ) {
                 Box(contentAlignment = Alignment.Center) {
-                    Text(glyph, color = MaterialTheme.colorScheme.primary, fontSize = 23.sp, fontWeight = FontWeight.Bold)
+                    Text(
+                        glyph,
+                        color = MaterialTheme.colorScheme.primary,
+                        fontSize = 23.sp,
+                        fontWeight = FontWeight.Bold
+                    )
                 }
             }
             Spacer(Modifier.width(14.dp))
             Column(Modifier.weight(1f)) {
                 Text(title, style = MaterialTheme.typography.titleMedium, color = MaterialTheme.colorScheme.onSurface)
                 Spacer(Modifier.height(2.dp))
-                Text(detail, style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
+                Text(
+                    detail,
+                    style = MaterialTheme.typography.bodySmall,
+                    color = MaterialTheme.colorScheme.onSurfaceVariant
+                )
             }
             if (selected) {
                 Spacer(Modifier.width(10.dp))
@@ -632,7 +681,12 @@ private fun SummaryCard(title: String, value: String, modifier: Modifier = Modif
         border = BorderStroke(1.dp, MaterialTheme.colorScheme.outline.copy(alpha = 0.36f)),
     ) {
         Row(Modifier.padding(17.dp), verticalAlignment = Alignment.CenterVertically) {
-            Text(title, style = MaterialTheme.typography.bodyMedium, color = MaterialTheme.colorScheme.onSurfaceVariant, modifier = Modifier.weight(1f))
+            Text(
+                title,
+                style = MaterialTheme.typography.bodyMedium,
+                color = MaterialTheme.colorScheme.onSurfaceVariant,
+                modifier = Modifier.weight(1f)
+            )
             Text(value, style = MaterialTheme.typography.titleMedium, color = MaterialTheme.colorScheme.onSurface)
         }
     }
@@ -681,12 +735,19 @@ private fun NavigationBar(
             colors = ButtonDefaults.buttonColors(containerColor = MaterialTheme.colorScheme.primary),
         ) {
             if (busy) {
-                CircularProgressIndicator(Modifier.size(16.dp), strokeWidth = 2.dp, color = MaterialTheme.colorScheme.onPrimary)
+                CircularProgressIndicator(
+                    Modifier.size(16.dp),
+                    strokeWidth = 2.dp,
+                    color = MaterialTheme.colorScheme.onPrimary
+                )
                 Spacer(Modifier.width(8.dp))
             }
             // "Next", not "Confirm": the welcome page literally says "Hit Next to get started", and
             // these steps advance a wizard rather than commit anything. Reported by Rei Ayanami.
-            Text(if (page == setupStepKeys.lastIndex) str("setup.button.letsGo") else str("setup.button.next"), fontWeight = FontWeight.Bold)
+            Text(
+                if (page == setupStepKeys.lastIndex) str("setup.button.letsGo") else str("setup.button.next"),
+                fontWeight = FontWeight.Bold
+            )
         }
     }
 }

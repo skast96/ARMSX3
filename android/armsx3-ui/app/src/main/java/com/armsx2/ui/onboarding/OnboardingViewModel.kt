@@ -125,7 +125,7 @@ class OnboardingViewModel(application: Application) : AndroidViewModel(applicati
         if (!RPCSX.initialized) {
             state.value = state.value.copy(
                 error = "The emulator core did not load, so firmware cannot be " +
-                    "installed. Reinstall ARMSX3 and try again.",
+                        "installed. Reinstall ARMSX3 and try again.",
             )
             return
         }
@@ -155,7 +155,7 @@ class OnboardingViewModel(application: Application) : AndroidViewModel(applicati
                 state.value.copy(
                     busy = false,
                     error = "\"${candidate.name}\" could not be installed. " +
-                        "It must be the official PS3UPDAT.PUP, not a repack.",
+                            "It must be the official PS3UPDAT.PUP, not a repack.",
                 )
             }
         }
@@ -181,6 +181,7 @@ class OnboardingViewModel(application: Application) : AndroidViewModel(applicati
                 MainActivityRuntime.prefs.edit().remove("systemDir").apply()
                 state.value = state.value.copy(systemLocation = location, error = null)
             }
+
             StorageLocation.SdCard -> {
                 val path = MainActivityRuntime.sdCardDataDir(getApplication())
                 if (path == null) {
@@ -241,10 +242,16 @@ class OnboardingViewModel(application: Application) : AndroidViewModel(applicati
     fun importBiosFolder(treeUri: Uri) {
         state.value = state.value.copy(busy = true, error = null)
         val context = getApplication<Application>()
-        runCatching { context.contentResolver.takePersistableUriPermission(treeUri, Intent.FLAG_GRANT_READ_URI_PERMISSION) }
+        runCatching {
+            context.contentResolver.takePersistableUriPermission(
+                treeUri,
+                Intent.FLAG_GRANT_READ_URI_PERMISSION
+            )
+        }
         viewModelScope.launch {
             val options = withContext(Dispatchers.IO) {
-                val children = DocumentFile.fromTreeUri(context, treeUri)?.listFiles()?.filter(DocumentFile::isFile).orEmpty()
+                val children =
+                    DocumentFile.fromTreeUri(context, treeUri)?.listFiles()?.filter(DocumentFile::isFile).orEmpty()
                 // Source stem -> imported stem, so the .mec/.nvm companions below can follow
                 // whatever name the BIOS actually got after sanitising/de-duplication.
                 val importedStems = HashMap<String, String>()
