@@ -19,7 +19,7 @@ import net.rpcsx.FirmwareStatus
 import net.rpcsx.ProgressRepository
 import net.rpcsx.RPCSX
 
-/** One PS3UPDAT.PUP found by the folder scan, shown in the in-app list. */
+/** One PS3UPDAT.PUP, as picked with the system file chooser. */
 data class FirmwareCandidate(val name: String, val uri: Uri, val sizeBytes: Long)
 
 /** One importable BIOS the user can pick from the setup list. */
@@ -41,10 +41,6 @@ data class OnboardingUiState(
     val firmwareVersion: String? = null,
     val firmwareInstalled: Boolean = false,
     val firmwareProgress: Float = 0f,
-    // Every .PUP the scanned folder turned up, listed IN-APP so choosing one never
-    // leaves ARMSX3 -- same shape as ARMSX2's multi-BIOS picker.
-    val firmwareOptions: List<FirmwareCandidate> = emptyList(),
-    val firmwareScanned: Boolean = false,
     val gameFolders: List<String> = emptyList(),
     val busy: Boolean = false,
     val error: String? = null,
@@ -102,49 +98,6 @@ class OnboardingViewModel(application: Application) : AndroidViewModel(applicati
     }
 
     /**
-     * Scan a folder for PS3 firmware and list what it finds, IN-APP.
-     *
-     * The system document picker is used ONCE, to grant access to a folder --
-     * exactly like ARMSX2's BIOS import. Choosing which firmware to install then
-     * happens on this screen, so the user is not bounced out to a file explorer
-     * to pick a file and dumped back at the start of setup.
-     *
-     * Matches by extension rather than by name: retail firmware is PS3UPDAT.PUP,
-     * but people rename downloads (`PS3UPDAT-4.90.PUP`, `4.91.PUP`), and a name
-     * check would show an empty list for a folder that plainly has firmware in it.
-     */
-    fun scanFirmwareFolder(treeUri: Uri) {
-        state.value = state.value.copy(busy = true, error = null)
-        val context = getApplication<Application>()
-        runCatching {
-            context.contentResolver.takePersistableUriPermission(
-                treeUri, Intent.FLAG_GRANT_READ_URI_PERMISSION
-            )
-        }
-
-        viewModelScope.launch {
-            val found = withContext(Dispatchers.IO) {
-                DocumentFile.fromTreeUri(context, treeUri)
-                    ?.listFiles()
-                    ?.filter { it.isFile && it.name?.endsWith(".PUP", ignoreCase = true) == true }
-                    ?.map { FirmwareCandidate(it.name ?: "firmware.PUP", it.uri, it.length()) }
-                    ?.sortedBy { it.name.lowercase() }
-                    .orEmpty()
-            }
-
-            state.value = if (found.isEmpty()) {
-                state.value.copy(
-                    busy = false,
-                    firmwareScanned = true,
-                    error = "No .PUP firmware was found in that folder.",
-                )
-            } else {
-                state.value.copy(busy = false, firmwareScanned = true, firmwareOptions = found)
-            }
-        }
-    }
-
-    /**
      * Install one of the scanned firmware files.
      *
      * The core takes a raw fd, not a path -- the file lives behind SAF where there
@@ -153,9 +106,11 @@ class OnboardingViewModel(application: Application) : AndroidViewModel(applicati
      *
      * Slow (PUP unpack, then the system modules), so it runs off the main thread.
      */
-    /** Install from a plain file, as picked by the in-app browser. */
-    fun installFirmware(file: java.io.File) =
-        installFirmware(FirmwareCandidate(file.name, Uri.fromFile(file), file.length()))
+    /** Install from a document picked with the system file chooser. */
+    fun installFirmware(uri: Uri) {
+        val doc = DocumentFile.fromSingleUri(getApplication(), uri)
+        installFirmware(FirmwareCandidate(doc?.name ?: "PS3UPDAT.PUP", uri, doc?.length() ?: 0L))
+    }
 
     fun installFirmware(candidate: FirmwareCandidate) {
         if (state.value.busy) return

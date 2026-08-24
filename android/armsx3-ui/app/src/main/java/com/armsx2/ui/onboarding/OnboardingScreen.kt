@@ -44,7 +44,6 @@ import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableFloatStateOf
-import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
@@ -76,18 +75,15 @@ fun OnboardingScreen(viewModel: OnboardingViewModel = viewModel()) {
     val state = viewModel.state.value
     val canContinue = viewModel.canContinue()
     var swipeDistance by remember { mutableFloatStateOf(0f) }
-    // Item 7: BIOS onboarding is folder-based (refresh parity) — pick a folder and
-    // every valid BIOS inside is imported and made available here and in the BIOS
-    // settings tab. The button already reads "Pick a different folder"; this makes
-    // the action match. Single-file import still lives in the BIOS settings tab.
-    // OpenDocumentTree grants a FOLDER. That is the only trip out of the app --
-    // the firmware files inside are then listed and chosen on our own screen,
-    // matching how ARMSX2 handles BIOS. Picking the .PUP with GetContent instead
-    // meant leaving the app to pick a single file every time.
-    // Fallback only: used when all-files access is unavailable (or refused), so
-    // there is still a way to reach a .PUP.
-    val biosPicker = rememberLauncherForActivityResult(ActivityResultContracts.OpenDocumentTree()) { uri ->
-        uri?.let(viewModel::scanFirmwareFolder)
+    // Firmware is picked with the system document picker (issue #1): the in-app
+    // browser walks /storage by POSIX and cannot see a removable SD card on
+    // Android 11+, and the system picker is what every other import in the app
+    // already uses. */* rather than a PUP MIME type -- Android has no type for
+    // a PS3 firmware update and a filtered picker greys the file out on some
+    // devices. The wizard page is persisted in prefs, so being bounced back
+    // from the picker after Android reclaims the Activity resumes on this step.
+    val firmwarePicker = rememberLauncherForActivityResult(ActivityResultContracts.OpenDocument()) { uri ->
+        uri?.let(viewModel::installFirmware)
     }
     val folderPicker = rememberLauncherForActivityResult(ActivityResultContracts.OpenDocumentTree()) { uri ->
         uri?.let(viewModel::addGameFolder)
@@ -110,14 +106,6 @@ fun OnboardingScreen(viewModel: OnboardingViewModel = viewModel()) {
                 ?.let(viewModel::selectCustomStorage)
         }
     }
-    // In-app browser for the firmware step. Preferred over the system picker,
-    // which is a different app on top of ours and is where Android is most
-    // likely to destroy this Activity.
-    var showFirmwareBrowser by remember { mutableStateOf(false) }
-    val firmwarePermLauncher = rememberLauncherForActivityResult(
-        ActivityResultContracts.StartActivityForResult()
-    ) { if (com.armsx2.ui.common.canBrowse()) showFirmwareBrowser = true }
-
     val allFilesLauncher = rememberLauncherForActivityResult(ActivityResultContracts.StartActivityForResult()) {
         if (android.os.Build.VERSION.SDK_INT >= android.os.Build.VERSION_CODES.R &&
             android.os.Environment.isExternalStorageManager()
@@ -146,18 +134,6 @@ fun OnboardingScreen(viewModel: OnboardingViewModel = viewModel()) {
     }
 
     LaunchedEffect(Unit) { viewModel.load() }
-
-    if (showFirmwareBrowser) {
-        com.armsx2.ui.common.FileBrowserDialog(
-            title = str("setup.bios.selectTitle"),
-            extensions = setOf("pup"),
-            onPick = { file ->
-                showFirmwareBrowser = false
-                viewModel.installFirmware(file)
-            },
-            onDismiss = { showFirmwareBrowser = false },
-        )
-    }
 
     ArmsBackdrop {
         BoxWithConstraints(
@@ -209,12 +185,7 @@ fun OnboardingScreen(viewModel: OnboardingViewModel = viewModel()) {
                             label = "onboarding-landscape-page",
                         ) { page ->
                             PageViewport(compact = false) {
-                                WizardPage(page, state, viewModel, biosPicker = {
-                                    openFirmwarePicker(
-                                        context, { showFirmwareBrowser = true },
-                                        firmwarePermLauncher, biosPicker,
-                                    )
-                                }, folderPicker = { folderPicker.launch(null) }, onCustomStorage = onCustomStorage)
+                                WizardPage(page, state, viewModel, biosPicker = { firmwarePicker.launch(arrayOf("*/*")) }, folderPicker = { folderPicker.launch(null) }, onCustomStorage = onCustomStorage)
                             }
                         }
                         NavigationBar(
@@ -252,12 +223,7 @@ fun OnboardingScreen(viewModel: OnboardingViewModel = viewModel()) {
                         label = "onboarding-portrait-page",
                     ) { page ->
                         PageViewport(compact = true) {
-                            WizardPage(page, state, viewModel, biosPicker = {
-                                openFirmwarePicker(
-                                    context, { showFirmwareBrowser = true },
-                                    firmwarePermLauncher, biosPicker,
-                                )
-                            }, folderPicker = { folderPicker.launch(null) }, onCustomStorage = onCustomStorage)
+                            WizardPage(page, state, viewModel, biosPicker = { firmwarePicker.launch(arrayOf("*/*")) }, folderPicker = { folderPicker.launch(null) }, onCustomStorage = onCustomStorage)
                         }
                     }
                     NavigationBar(
@@ -295,7 +261,7 @@ private fun WizardPage(
     when (page) {
         0 -> WelcomePage(compact = true)
         1 -> StoragePage(state, compact = true, viewModel::selectStorage, onCustomStorage)
-        2 -> FirmwarePage(state, onPick = biosPicker, onInstall = viewModel::installFirmware)
+        2 -> FirmwarePage(state, onPick = biosPicker)
         3 -> GamesPage(state, folderPicker, viewModel::removeGameFolder)
         else -> ReadyPage(state, compact = true)
     }
@@ -502,7 +468,6 @@ private fun androidx.compose.foundation.layout.RowScope.StorageChoices(
 private fun FirmwarePage(
     state: OnboardingUiState,
     onPick: () -> Unit,
-    onInstall: (FirmwareCandidate) -> Unit,
 ) {
     SetupPage(str("setup.page.bios.title"), str("setup.step.bios.description")) {
         when {
@@ -525,29 +490,8 @@ private fun FirmwarePage(
                             color = MaterialTheme.colorScheme.onSurfaceVariant,
                         )
                         OutlinedButton(onClick = onPick, modifier = Modifier.fillMaxWidth()) {
-                            Text(str("setup.button.pickDifferentFolder"))
+                            Text(str("bios.firmware.reinstall"))
                         }
-                    }
-                }
-            }
-
-            // Scanned and found something: choose it right here, in-app.
-            state.firmwareOptions.isNotEmpty() -> {
-                Column(verticalArrangement = Arrangement.spacedBy(9.dp)) {
-                    Text(
-                        str("setup.firmware.choose"),
-                        style = MaterialTheme.typography.bodySmall,
-                        color = MaterialTheme.colorScheme.onSurfaceVariant,
-                    )
-                    state.firmwareOptions.forEach { candidate ->
-                        FirmwareOptionRow(
-                            candidate = candidate,
-                            enabled = !state.busy,
-                            onClick = { onInstall(candidate) },
-                        )
-                    }
-                    OutlinedButton(onClick = onPick, modifier = Modifier.fillMaxWidth()) {
-                        Text(str("setup.button.pickDifferentFolder"))
                     }
                 }
             }
@@ -574,44 +518,6 @@ private fun FirmwarePage(
                     color = MaterialTheme.colorScheme.onSurfaceVariant,
                 )
             }
-        }
-    }
-}
-
-@Composable
-private fun FirmwareOptionRow(
-    candidate: FirmwareCandidate,
-    enabled: Boolean,
-    onClick: () -> Unit,
-) {
-    Surface(
-        modifier = Modifier.fillMaxWidth(),
-        shape = RoundedCornerShape(16.dp),
-        color = MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.5f),
-        border = BorderStroke(1.dp, MaterialTheme.colorScheme.outline.copy(alpha = 0.35f)),
-        onClick = { if (enabled) onClick() },
-    ) {
-        Row(
-            Modifier.padding(horizontal = 16.dp, vertical = 13.dp),
-            verticalAlignment = Alignment.CenterVertically,
-        ) {
-            Column(Modifier.weight(1f)) {
-                Text(
-                    candidate.name,
-                    style = MaterialTheme.typography.titleSmall,
-                    color = MaterialTheme.colorScheme.onSurface,
-                )
-                Text(
-                    "%.1f MB".format(candidate.sizeBytes / 1_048_576f),
-                    style = MaterialTheme.typography.bodySmall,
-                    color = MaterialTheme.colorScheme.onSurfaceVariant,
-                )
-            }
-            Text(
-                str("setup.button.choose"),
-                style = MaterialTheme.typography.labelLarge,
-                color = MaterialTheme.colorScheme.primary,
-            )
         }
     }
 }
@@ -783,39 +689,4 @@ private fun NavigationBar(
             Text(if (page == setupStepKeys.lastIndex) str("setup.button.letsGo") else str("setup.button.next"), fontWeight = FontWeight.Bold)
         }
     }
-}
-
-
-/**
- * Open the firmware picker, preferring the in-app browser.
- *
- * Order matters: browsing in-app needs all-files access, so if we do not have it
- * yet, ASK for it rather than silently dropping to the system picker — the
- * browser is the experience we want, and the prompt is one tap. Only if the
- * platform cannot offer that screen at all do we fall back to SAF, which always
- * works but leaves the app.
- */
-private fun openFirmwarePicker(
-    context: android.content.Context,
-    showBrowser: () -> Unit,
-    permLauncher: androidx.activity.result.ActivityResultLauncher<android.content.Intent>,
-    safPicker: androidx.activity.result.ActivityResultLauncher<android.net.Uri?>,
-) {
-    if (com.armsx2.ui.common.canBrowse()) {
-        showBrowser()
-        return
-    }
-
-    if (android.os.Build.VERSION.SDK_INT >= android.os.Build.VERSION_CODES.R) {
-        val intent = android.content.Intent(
-            android.provider.Settings.ACTION_MANAGE_APP_ALL_FILES_ACCESS_PERMISSION,
-            android.net.Uri.parse("package:${context.packageName}"),
-        )
-        runCatching { permLauncher.launch(intent) }.onFailure {
-            runCatching { safPicker.launch(null) }
-        }
-        return
-    }
-
-    safPicker.launch(null)
 }
