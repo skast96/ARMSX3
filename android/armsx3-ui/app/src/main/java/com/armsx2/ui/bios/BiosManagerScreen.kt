@@ -26,9 +26,7 @@ import androidx.compose.ui.unit.dp
 import com.armsx2.i18n.I18n
 import com.armsx2.i18n.str
 import com.armsx2.runtime.MainActivityRuntime
-import com.armsx2.ui.common.FileBrowserDialog
 import com.armsx2.ui.common.ArmsBackdrop
-import com.armsx2.ui.common.canBrowse
 import com.armsx2.ui.settings.controllerFocusable
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.withContext
@@ -59,7 +57,6 @@ fun BiosManagerScreen(onBack: () -> Unit, game: com.armsx2.GameInfo? = null) {
     val status by FirmwareRepository.status
     var busy by remember { mutableStateOf(false) }
     var message by remember { mutableStateOf<String?>(null) }
-    var showBrowser by remember { mutableStateOf(false) }
 
     // Re-read fw.json on entry. Firmware may have been installed by the setup
     // wizard in this same session, and the repository is otherwise only loaded
@@ -70,11 +67,10 @@ fun BiosManagerScreen(onBack: () -> Unit, game: com.armsx2.GameInfo? = null) {
     // Install takes a URI, not a File.
     //
     // The core is handed a file descriptor either way, and openAssetFileDescriptor resolves a
-    // content:// URI exactly as happily as a file://. Routing both paths through one function is
-    // what lets the SAF picker below share it -- the in-app browser cannot reach a MicroSD on
-    // Android 11 and later, because storageRoots() enumerates /storage by POSIX and a removable
-    // volume is not listable that way. Reported on an Odin 3 Max: the picker showed internal
-    // storage only. The package installer already had this second route; firmware never did.
+    // content:// URI exactly as happily as a file://. The SAF picker is the only entry point:
+    // the in-app browser could not reach a MicroSD on Android 11 and later, because
+    // storageRoots() enumerates /storage by POSIX and a removable volume is not listable that
+    // way (issue #1, first reported on an Odin 3 Max).
     val installFirmware: (android.net.Uri) -> Unit = { uri ->
         busy = true
         message = null
@@ -102,18 +98,6 @@ fun BiosManagerScreen(onBack: () -> Unit, game: com.armsx2.GameInfo? = null) {
     val safPicker = androidx.activity.compose.rememberLauncherForActivityResult(
         androidx.activity.result.contract.ActivityResultContracts.OpenDocument(),
     ) { uri -> uri?.let(installFirmware) }
-
-    if (showBrowser) {
-        FileBrowserDialog(
-            title = str("setup.bios.selectTitle"),
-            extensions = setOf("pup"),
-            onPick = { file ->
-                showBrowser = false
-                installFirmware(android.net.Uri.fromFile(file))
-            },
-            onDismiss = { showBrowser = false },
-        )
-    }
 
     // ArmsBackdrop supplies the themed surface AND the content colours. Without
     // it this screen drew on the raw window background, so the headline rendered
@@ -181,45 +165,19 @@ fun BiosManagerScreen(onBack: () -> Unit, game: com.armsx2.GameInfo? = null) {
             }
         } else {
             OutlinedButton(
-                onClick = {
-                    // In-app browser when storage is visible; otherwise say why
-                    // rather than opening an empty list.
-                    if (canBrowse()) showBrowser = true
-                    else message = I18n.get("bios.firmware.needsStorage")
-                },
+                onClick = { safPicker.launch(arrayOf("*/*")) },
                 modifier = Modifier
                     .fillMaxWidth()
                     .controllerFocusable(
                         "firmware.install",
                         RoundedCornerShape(13.dp),
-                        onConfirm = {
-                            if (canBrowse()) showBrowser = true
-                            else message = I18n.get("bios.firmware.needsStorage")
-                        },
+                        onConfirm = { safPicker.launch(arrayOf("*/*")) },
                     ),
             ) {
                 Text(
                     if (status == FirmwareStatus.None) str("setup.bios.selectTitle")
                     else str("bios.firmware.reinstall"),
                 )
-            }
-
-            // Reaches storage the in-app browser cannot open by path: USB-OTG, and MicroSD on
-            // devices that only expose it through SAF. Always offered, not just when canBrowse()
-            // fails -- a device can have all-files access AND still hide its card from a POSIX
-            // walk of /storage, which is exactly the case that was reported.
-            OutlinedButton(
-                onClick = { safPicker.launch(arrayOf("*/*")) },
-                modifier = Modifier
-                    .fillMaxWidth()
-                    .padding(top = 8.dp)
-                    .controllerFocusable(
-                        "firmware.install.external",
-                        RoundedCornerShape(13.dp),
-                        onConfirm = { safPicker.launch(arrayOf("*/*")) },
-                    ),
-            ) {
-                Text(str("packages.select.external"))
             }
         }
 
