@@ -111,6 +111,13 @@ class RPCSX {
 
     /** What the game is asking the rumble motors to do: (large shl 8) or small, each 0..255. */
     external fun getPadRumble(port: Int): Int
+
+    /**
+     * Device temperatures for the perf overlay, in degrees Celsius, or Thermals.NONE for a
+     * reading that could not be taken. Discovery is the app's job -- Android has no supported
+     * API for SoC temperatures -- so the core is only ever told the answer.
+     */
+    external fun setThermals(cpu: Float, gpu: Float, battery: Float, show: Boolean)
     external fun usbDeviceEvent(fd: Int, vendorId: Int, productId: Int, event: Int): Boolean
     external fun processCompilationQueue(): Boolean
     external fun startMainThreadProcessor(): Boolean
@@ -145,6 +152,15 @@ class RPCSX {
      *  password the UI never displayed. */
     external fun rpcnSetConfig(host: String, npid: String, password: String, token: String)
 
+    /** Sends a friend request. Signs in first if needed; returns "" on success or a message. */
+    external fun rpcnAddFriend(npid: String): String
+
+    /** Removes a friend. Returns "" on success or a message. */
+    external fun rpcnRemoveFriend(npid: String): String
+
+    /** Friend list as JSON, or [] when not signed in. Never signs in on its own. */
+    external fun rpcnGetFriends(): String
+
     external fun rpcnCreateAccount(npid: String, password: String, onlineName: String, email: String): String
     external fun rpcnResendToken(npid: String, password: String): String
     external fun rpcnSendResetToken(npid: String, email: String): String
@@ -152,6 +168,9 @@ class RPCSX {
 
     /** Connect and authenticate with the saved account. */
     external fun rpcnTestLogin(): String
+
+    /** Delete every trophy this account has synced to the server. Not undoable. */
+    external fun rpcnDeleteTrophies(): String
 
     // Saved servers. The list lives in the core's own cfg_rpcn "Hosts" entry, so these are
     // a view onto it, not a second store -- and the official server is protected from
@@ -178,6 +197,10 @@ class RPCSX {
     external fun resume()
     external fun pause()
     external fun openHomeMenu()
+
+    /** Arm an RSX frame capture: the next frame the emulator renders is recorded to
+     *  config/captures/ and emulation pauses. */
+    external fun captureFrame()
     external fun loginUser(userId: String)
     external fun getUser(): String
     external fun getTitleId(): String

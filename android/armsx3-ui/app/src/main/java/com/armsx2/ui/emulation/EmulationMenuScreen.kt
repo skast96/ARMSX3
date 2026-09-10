@@ -70,6 +70,7 @@ import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import androidx.lifecycle.viewmodel.compose.viewModel
 import coil.compose.AsyncImage
+import com.armsx3.Rpcs3Bridge
 import com.armsx2.i18n.str
 import com.armsx2.runtime.MainActivityRuntime
 import com.armsx2.ui.InGameOverlay
@@ -636,12 +637,6 @@ private fun SessionPane(state: EmulationMenuUiState, viewModel: EmulationMenuVie
     ActionGrid(
         actions = listOf(
             MenuAction(str("action.resume"), str("action.play"), "▶", Success, viewModel::resume),
-            MenuAction(
-                str("action.fastForward"),
-                if (MainActivityRuntime.fastForwardToggleActive) str("action.fastForward.on") else str("action.fastForward.detail"),
-                "⏩",
-                if (MainActivityRuntime.fastForwardToggleActive) Success else null,
-            ) { MainActivityRuntime.instance?.toggleFastForward(); viewModel.resume() },
             MenuAction(str("memcard.restart"), str("action.reset"), "↻", null, MainActivityRuntime::restart),
             MenuAction(str("action.swapDisc"), str("action.swapDisc.detail"), "⏏", null, MainActivityRuntime::promptSwapDisc),
             MenuAction(str("action.close"), MainActivityRuntime.currentGame.value?.title.orEmpty(), "■", Danger) {
@@ -688,24 +683,8 @@ private fun SessionPane(state: EmulationMenuUiState, viewModel: EmulationMenuVie
         Spacer(Modifier.height(6.dp))
     // Removed: PS2 GS download mode.
         Spacer(Modifier.height(6.dp))
-        // Fast-forward SPEED — how fast the FF hotkey/button runs: 2..10x, or Unlimited (the
-        // default, uncapped) at the top. Global pref; re-applied live if FF is currently engaged.
-        var ffSpeed by remember { mutableStateOf(MainActivityRuntime.fastForwardSpeed()) }
-        val ffUnlimitedLabel = str("common.unlimited") // hoisted: str() is @Composable, can't run in the formatter lambda
-        com.armsx2.ui.settings.IntSliderRow(
-            label = str("perf.ffSpeed.label"),
-            value = ffSpeed,
-            min = 2,
-            max = MainActivityRuntime.FF_SPEED_UNLIMITED,
-            valueFormatter = { if (it >= MainActivityRuntime.FF_SPEED_UNLIMITED) ffUnlimitedLabel else "${it}×" },
-            onChange = { v ->
-                ffSpeed = v
-                MainActivityRuntime.setFastForwardSpeed(v)
-                if (MainActivityRuntime.fastForwardToggleActive)
-                    runCatching { com.armsx3.NativeApp.speedhackLimitermode(MainActivityRuntime.ffLimiterMode()) }
-            },
-        )
-        Spacer(Modifier.height(6.dp))
+        // Removed: fast-forward speed. Speed control is PCSX2's -- speedhackLimitermode is an
+        // Unsupported shim on this core -- so the slider set a number nothing could read.
         // OSD colour, cycled in place. Shares the palette with the All Settings picker rather
         // than carrying its own copy. Safe to add here: this card's rows are plain switches with
         // their own callbacks — SessionPane's selectedAction indexes the action GRID above, not
@@ -890,11 +869,38 @@ private fun GraphicsPane(state: EmulationMenuUiState, viewModel: EmulationMenuVi
             title = str("renderer.outputScaling.label"),
             options = listOf(
                 str("renderer.outputScaling.nearest"), str("renderer.outputScaling.bilinear"),
-                str("renderer.outputScaling.fsr"),
+                str("renderer.outputScaling.fsr"), str("renderer.outputScaling.sgsr"),
+                str("renderer.outputScaling.sgsrEdge"),
             ).mapIndexed { index, label -> index to label },
             selected = settings.casMode,
             onSelect = { v -> viewModel.updateSettings { it.copy(casMode = v) } },
         )
+        // Sharpening, shown only for the two upscalers that have any. It was missing from this
+        // menu entirely, which is the one people reach mid-game -- changing upscaler here and
+        // then having to leave the game to tune it defeats the point of the quick menu.
+        //
+        // The label follows the selection because the number does not mean the same thing to
+        // both: it is an RCAS stop to FSR and an edge factor to SGSR, and a slider named for the
+        // upscaler that is not running is simply wrong.
+        if (settings.casMode >= 2) {
+            Spacer(Modifier.height(6.dp))
+            // SGSR reaches 200: Qualcomm's edge_sharpness is 0..2 with 1.0 as their default, so
+            // 100 is that default and 200 the widened top end. It is a separate stored value
+            // because FSR's is natively clamped to 100 and cannot express the range.
+            val sgsr = settings.casMode >= 3
+            com.armsx2.ui.settings.IntSliderRow(
+                label = str(if (sgsr) "renderer.cas.sharpness.sgsr" else "renderer.cas.sharpness.fsr"),
+                value = if (sgsr) settings.sgsrSharpness.coerceIn(0, 200) else settings.casSharpness.coerceIn(0, 100),
+                min = 0,
+                max = if (sgsr) 200 else 100,
+                valueFormatter = { "$it%" },
+                onChange = { v ->
+                    viewModel.updateSettings {
+                        if (sgsr) it.copy(sgsrSharpness = v) else it.copy(casSharpness = v)
+                    }
+                },
+            )
+        }
         Spacer(Modifier.height(6.dp))
         MenuSwitchRow(str("renderer.relaxedZcull.label"), settings.ps3.relaxedZcull) { v ->
             viewModel.updateSettings { it.copy(ps3 = it.ps3.copy(relaxedZcull = v)) }
@@ -1172,6 +1178,20 @@ private fun PerformancePane(state: EmulationMenuUiState, viewModel: EmulationMen
             selected = settings.ps3.clocksScale,
             onSelect = { v -> viewModel.updateSettings { it.copy(ps3 = it.ps3.copy(clocksScale = v)) } },
         )
+    }
+    // The only way to produce an .rrc on Android. Every graphics bug reported from a phone
+    // used to arrive without one, which is the file upstream asks for first and the only
+    // thing that shows which surface actually went wrong.
+    SectionCard(str("capture.title")) {
+        var armed by remember { mutableStateOf(false) }
+        MenuButtonRow(
+            title = str("capture.rsx"),
+            description = if (armed) str("capture.rsx.armed") else str("capture.rsx.detail"),
+            glyph = if (armed) "\u25cf" else "\u2b1a",
+        ) {
+            armed = true
+            Rpcs3Bridge.captureFrame()
+        }
     }
     SectionCard(str("tab.overlay")) {
         // RPCS3's overlay has no per-element switches: one Enabled flag plus a
@@ -1753,6 +1773,43 @@ private fun MenuSwitchRow(
             }
             Spacer(Modifier.width(10.dp))
             Switch(checked = checked, onCheckedChange = if (enabled) onCheckedChange else null)
+        }
+    }
+}
+
+/** A row that just does something when you tap it. MenuSwitchRow and MenuCycleRow both carry
+ *  a value; this one is for a one-shot action, and matches their shape so the card reads evenly. */
+@Composable
+private fun MenuButtonRow(
+    title: String,
+    description: String,
+    glyph: String,
+    onClick: () -> Unit,
+) {
+    Surface(
+        onClick = onClick,
+        modifier = Modifier
+            .fillMaxWidth()
+            .controllerFocusable("pause.button.$title", onConfirm = onClick),
+        shape = RoundedCornerShape(16.dp),
+        color = MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.42f),
+        border = BorderStroke(1.dp, MaterialTheme.colorScheme.outline.copy(alpha = 0.34f)),
+    ) {
+        Row(
+            Modifier.padding(horizontal = 13.dp, vertical = 9.dp),
+            verticalAlignment = Alignment.CenterVertically,
+        ) {
+            Column(Modifier.weight(1f)) {
+                Text(title, style = MaterialTheme.typography.titleSmall, maxLines = 2)
+                Text(
+                    description,
+                    style = MaterialTheme.typography.bodySmall,
+                    color = MaterialTheme.colorScheme.onSurfaceVariant,
+                    maxLines = 4,
+                )
+            }
+            Spacer(Modifier.width(10.dp))
+            Text(glyph, style = MaterialTheme.typography.titleMedium, color = MaterialTheme.colorScheme.primary)
         }
     }
 }

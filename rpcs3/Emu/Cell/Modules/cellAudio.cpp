@@ -100,7 +100,6 @@ void cell_audio_config::reset(bool backend_changed)
 	audio_sample_size = static_cast<u32>(sample_size);
 	audio_min_buffer_duration = cb_frame_len + u32{AUDIO_BUFFER_SAMPLES} * 2.0 / audio_sampling_rate; // Add 2 blocks to allow jitter compensation
 
-	audio_buffer_length = AUDIO_BUFFER_SAMPLES * audio_channels;
 
 	desired_buffer_duration = std::max(static_cast<s64>(audio_min_buffer_duration * 1000), raw.desired_buffer_duration) * 1000llu;
 	buffering_enabled = raw.buffering_enabled && raw.renderer != audio_renderer::null;
@@ -161,7 +160,19 @@ audio_ringbuffer::audio_ringbuffer(cell_audio_config& _cfg)
 	{
 		if (cfg.buffering_enabled)
 		{
-			return cfg.desired_buffer_duration / 1'000'000.0 + 0.02; // Add 20ms to buffer to keep buffering algorithm happy
+			// Headroom above the target, for bursts.
+			//
+			// 20ms leaves ~3.2 blocks of slack over a 36.7ms target, and commit_data below
+			// pushes with force=false, so a block that does not fit is discarded WHOLE -- 5.33ms
+			// of audio vanishing mid-waveform, which is a click. That is not a rare edge: a
+			// frame stall drains the ring, the guest then refills at up to twice nominal (the
+			// controller's minimum period is half nominal), and the overshoot lands past the
+			// limit. Measured on device at queued=49.3ms against a 54.0ms capacity.
+			//
+			// Widening the headroom costs nothing in steady state -- the controller still tracks
+			// the same target and the ring still drains back to it -- it only allows a transient
+			// burst to be held instead of thrown away.
+			return cfg.desired_buffer_duration / 1'000'000.0 + 0.06;
 		}
 
 		return cfg.audio_min_buffer_duration;
@@ -312,7 +323,19 @@ void audio_ringbuffer::commit_data(f32* buf, u32 sample_cnt)
 		AudioBackend::convert_to_s16(sample_cnt_out, buf, buf);
 	}
 
-	cb_ringbuf.push(buf, sample_cnt_out * cfg.audio_sample_size);
+	// A dropped block is audible, so it should not be invisible. push() returns 0 when the block
+	// does not fit and force is false; ignoring that return is why whole blocks could disappear
+	// with underruns=0 and nothing in the log to explain the crunch.
+	const u64 want = sample_cnt_out * cfg.audio_sample_size;
+
+	if (cb_ringbuf.push(buf, want) != want)
+	{
+		if ((m_dropped_blocks++ & 0x3f) == 0)
+		{
+			cellAudio.warning("Audio: dropped %u blocks that did not fit the ring (%.1f ms queued)",
+				m_dropped_blocks.load(), get_enqueued_playtime() / 1000.0);
+		}
+	}
 }
 
 void audio_ringbuffer::play()
@@ -870,8 +893,23 @@ void cell_audio_thread::operator()()
 			const u32 untouched    = std::get<2>(tag_info);
 			const u32 incomplete   = std::get<3>(tag_info);
 
-			// Ratio between the rolling average of the audio period, and the desired audio period
-			const f32 average_playtime_ratio = m_average_playtime / cfg.audio_buffer_length;
+			// Ratio between the rolling average of the audio period, and the desired audio period.
+			//
+			// The denominator was audio_buffer_length, which is a SAMPLE COUNT
+			// (AUDIO_BUFFER_SAMPLES * channels, 512 for stereo), while m_average_playtime is an
+			// average of get_enqueued_playtime() in MICROSECONDS. The ratio was therefore
+			// microseconds per sample: about 78 on a healthy stereo buffer, never below 1, so the
+			// widening branch below has not executed once since it was written (upstream
+			// 107107107, 2022 -- m_average_playtime has been a duration for even longer, so this
+			// was never right rather than having drifted). That field had no other reader in the
+			// whole tree, which is why nothing else ever caught it, and it is deleted with this
+			// change so it cannot be picked up again by mistake.
+			//
+			// The comment names the intended denominator: the desired audio period, in the same
+			// units. audio_block_period would leave the ratio near 7 and the branch just as dead.
+			const f32 average_playtime_ratio = cfg.desired_buffer_duration
+				? m_average_playtime / static_cast<f32>(cfg.desired_buffer_duration)
+				: 1.0f;
 
 			// Use the above average ratio to decide how much buffer we should be aiming for
 			f32 desired_duration_adjusted = cfg.desired_buffer_duration + (cfg.audio_block_period / 2.0f);
@@ -921,6 +959,43 @@ void cell_audio_thread::operator()()
 				// not as full as desired
 				const f32 multiplier = desired_duration_rate * desired_duration_rate; // quite aggressive, but helps more times than it hurts
 				m_dynamic_period = cfg.minimum_block_period + static_cast<u64>((cfg.audio_block_period - cfg.minimum_block_period) * multiplier);
+			}
+
+			// Say how much audio is queued, once every 10s.
+			//
+			// Progressive audio delay is reported repeatedly (#87: Guitar Hero, where the audio
+			// starts synchronised and falls further behind the notes the longer a song runs, and
+			// pausing resets it). Every theory about it is unfalsifiable from the logs we get,
+			// because how full this ring is -- the thing that IS the delay -- was never recorded.
+			// It reproduces on both Cubeb and Oboe, so it is not the backend.
+			//
+			// One line per 10s: enough to see the curve across a song, few enough that the log
+			// volume cannot itself become the stall. Queued is the latency the player hears;
+			// target is what the algorithm is aiming for; period vs the nominal block period is
+			// how hard it is correcting (>100% throttles the guest, <100% hurries it).
+			if (timestamp - m_last_buffer_report >= 10'000'000)
+			{
+				m_last_buffer_report = timestamp;
+
+				// Underruns SINCE THE LAST LINE, not since boot: what matters is whether the
+				// output is breaking up now, and a running total from a rough patch minutes ago
+				// hides that. Non-zero here is crackling, measured rather than inferred.
+				const u64 underruns_total = cfg.backend ? cfg.backend->get_underruns() : 0;
+				const u64 underruns = underruns_total - m_last_underruns;
+				m_last_underruns = underruns_total;
+
+				cellAudio.notice("Audio buffer: queued=%.1fms target=%.1fms (%.0f%%) period=%.0f%% "
+					"blocks=%u ports=%u untouched=%u avg=%.2f ratio=%.2f underruns=%u",
+					enqueued_playtime / 1000.0,
+					desired_duration_adjusted / 1000.0,
+					desired_duration_rate * 100.0f,
+					cfg.audio_block_period ? (m_dynamic_period * 100.0 / cfg.audio_block_period) : 0.0,
+					static_cast<u32>(enqueued_buffers),
+					active_ports,
+					untouched,
+					average_playtime_ratio,
+					frequency_ratio,
+					underruns);
 			}
 
 			const s64 time_left = m_dynamic_period - time_since_last_period;

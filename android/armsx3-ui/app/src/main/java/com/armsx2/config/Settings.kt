@@ -184,6 +184,9 @@ data class Ps3Settings(
     val audioFormat: Int = 0,
     val audioChannels: Int = 0,
     val audioTimeStretch: Boolean = false,
+    /** Keeps Oboe off AAudio's MMAP fast path so screen recorders can capture the audio.
+     *  Costs latency, so it is off unless you are recording. */
+    val audioRecordingCompat: Boolean = false,
     val audioBuffering: Boolean = true,
     val audioBufferMs: Int = 34,
     /** cubeb backend: 0 auto, 1 aaudio, 2 opensl, 3 audiotrack. Auto reaches AAudio on
@@ -877,6 +880,9 @@ data class Settings(
     /** Scaling Mode row: 0 Nearest, 1 Bilinear, 2 FSR. Bilinear because that is what the
      *  core has always actually used, and what RPCS3 itself defaults to. */
     val casMode: Int = 1,
+    /** SGSR edge sharpness, 0..200. 100 is Qualcomm's default. Separate from casSharpness
+     *  because that one is natively clamped to 100 and cannot express this range. */
+    val sgsrSharpness: Int = 100,
     /** EmuCore/GS/CASSharpness — sharpening strength 0..100 (%). */
     val casSharpness: Int = 50,
     /** EmuCore/GS/LoadTextureReplacements. */
@@ -1132,6 +1138,7 @@ data class Settings(
         put("PS3/Audio", "Audio Format", "enum", ps3.audioFormat.toString())
         put("PS3/Audio", "Audio Channel Layout", "enum", ps3.audioChannels.toString())
         put("PS3/Audio", "Enable Time Stretching", "bool", ps3.audioTimeStretch.toString())
+        put("PS3/Audio", "Recording Compatible", "bool", ps3.audioRecordingCompat.toString())
         put("PS3/Audio", "Enable Buffering", "bool", ps3.audioBuffering.toString())
         put("PS3/Audio", "Desired Audio Buffer Duration", "int", ps3.audioBufferMs.toString())
         put("PS3/Audio", "Cubeb Backend", "int", ps3.audioCubebBackend.toString())
@@ -1844,7 +1851,8 @@ data class Settings(
         put("EmuCore/GS", "fxaa", "bool", fxaa.toString())
         // Scaling Mode writes Output Scaling Mode unconditionally, the shader chain only
         // when it is on, so CAS has to go first for the chain to keep the last word.
-        put("EmuCore/GS", "CASMode", "int", casMode.coerceIn(0, 2).toString())
+        put("EmuCore/GS", "CASMode", "int", casMode.coerceIn(0, 4).toString())
+        put("EmuCore/GS", "SGSRSharpness", "int", sgsrSharpness.coerceIn(0, 200).toString())
         put("EmuCore/GS", "CASSharpness", "int", casSharpness.coerceIn(0, 100).toString())
         put("EmuCore/GS", "ShaderChainEnabled", "bool", shaderChainEnabled.toString())
         put("EmuCore/GS", "ShaderChainPreset", "string", shaderChainPreset)
@@ -2027,6 +2035,7 @@ data class Settings(
             shadeBoostGamma != other.shadeBoostGamma ||
             fxaa != other.fxaa ||
             casMode != other.casMode ||
+            sgsrSharpness != other.sgsrSharpness ||
             casSharpness != other.casSharpness ||
             accurateBlendingUnit != other.accurateBlendingUnit ||
             hwMipmap != other.hwMipmap ||
@@ -2114,6 +2123,7 @@ data class Settings(
         put("ps3AudioFormat", ps3.audioFormat)
         put("ps3AudioChannels", ps3.audioChannels)
         put("ps3AudioTimeStretch", ps3.audioTimeStretch)
+        put("ps3AudioRecordingCompat", ps3.audioRecordingCompat)
         put("ps3AudioBuffering", ps3.audioBuffering)
         put("ps3AudioBufferMs", ps3.audioBufferMs)
         put("ps3NetEnabled", ps3.netEnabled)
@@ -2334,6 +2344,7 @@ data class Settings(
         put("shaderChainPreset", shaderChainPreset)
         put("shaderChainParams", shaderChainParamsToJson(shaderChainParams))
         put("casMode", casMode)
+        put("sgsrSharpness", sgsrSharpness)
         put("casSharpness", casSharpness)
         put("loadTextureReplacements", loadTextureReplacements)
         put("loadTextureReplacementsAsync", loadTextureReplacementsAsync)
@@ -2469,6 +2480,7 @@ data class Settings(
                     audioFormat = json.optInt("ps3AudioFormat", def.ps3.audioFormat),
                     audioChannels = json.optInt("ps3AudioChannels", def.ps3.audioChannels),
                     audioTimeStretch = json.optBoolean("ps3AudioTimeStretch", def.ps3.audioTimeStretch),
+                    audioRecordingCompat = json.optBoolean("ps3AudioRecordingCompat", def.ps3.audioRecordingCompat),
                     audioBuffering = json.optBoolean("ps3AudioBuffering", def.ps3.audioBuffering),
                     audioBufferMs = json.optInt("ps3AudioBufferMs", def.ps3.audioBufferMs),
                     netEnabled = json.optBoolean("ps3NetEnabled", def.ps3.netEnabled),
@@ -2700,6 +2712,7 @@ data class Settings(
                 shaderChainParams = json.optJSONObject("shaderChainParams")
                     ?.let { shaderChainParamsFromJson(it) } ?: def.shaderChainParams,
                 casMode = json.optInt("casMode", def.casMode),
+                sgsrSharpness = json.optInt("sgsrSharpness", def.sgsrSharpness),
                 casSharpness = json.optInt("casSharpness", def.casSharpness),
                 loadTextureReplacements = json.optBoolean("loadTextureReplacements", def.loadTextureReplacements),
                 loadTextureReplacementsAsync = json.optBoolean("loadTextureReplacementsAsync", def.loadTextureReplacementsAsync),
@@ -2809,6 +2822,7 @@ data class Settings(
             if (current.ps3.audioFormat != base.ps3.audioFormat) j.put("ps3AudioFormat", current.ps3.audioFormat)
             if (current.ps3.audioChannels != base.ps3.audioChannels) j.put("ps3AudioChannels", current.ps3.audioChannels)
             if (current.ps3.audioTimeStretch != base.ps3.audioTimeStretch) j.put("ps3AudioTimeStretch", current.ps3.audioTimeStretch)
+            if (current.ps3.audioRecordingCompat != base.ps3.audioRecordingCompat) j.put("ps3AudioRecordingCompat", current.ps3.audioRecordingCompat)
             if (current.ps3.audioBuffering != base.ps3.audioBuffering) j.put("ps3AudioBuffering", current.ps3.audioBuffering)
             if (current.ps3.audioBufferMs != base.ps3.audioBufferMs) j.put("ps3AudioBufferMs", current.ps3.audioBufferMs)
             if (current.ps3.netEnabled != base.ps3.netEnabled) j.put("ps3NetEnabled", current.ps3.netEnabled)
@@ -3025,6 +3039,7 @@ data class Settings(
             if (current.shaderChainPreset   != base.shaderChainPreset)   j.put("shaderChainPreset", current.shaderChainPreset)
             if (current.shaderChainParams   != base.shaderChainParams)   j.put("shaderChainParams", shaderChainParamsToJson(current.shaderChainParams))
             if (current.casMode             != base.casMode)             j.put("casMode", current.casMode)
+            if (current.sgsrSharpness       != base.sgsrSharpness)       j.put("sgsrSharpness", current.sgsrSharpness)
             if (current.casSharpness        != base.casSharpness)        j.put("casSharpness", current.casSharpness)
             if (current.loadTextureReplacements != base.loadTextureReplacements) j.put("loadTextureReplacements", current.loadTextureReplacements)
             if (current.loadTextureReplacementsAsync != base.loadTextureReplacementsAsync) j.put("loadTextureReplacementsAsync", current.loadTextureReplacementsAsync)
@@ -3125,6 +3140,7 @@ data class Settings(
                     audioFormat = if (overrides.has("ps3AudioFormat")) overrides.getInt("ps3AudioFormat") else base.ps3.audioFormat,
                     audioChannels = if (overrides.has("ps3AudioChannels")) overrides.getInt("ps3AudioChannels") else base.ps3.audioChannels,
                     audioTimeStretch = if (overrides.has("ps3AudioTimeStretch")) overrides.getBoolean("ps3AudioTimeStretch") else base.ps3.audioTimeStretch,
+                    audioRecordingCompat = if (overrides.has("ps3AudioRecordingCompat")) overrides.getBoolean("ps3AudioRecordingCompat") else base.ps3.audioRecordingCompat,
                     audioBuffering = if (overrides.has("ps3AudioBuffering")) overrides.getBoolean("ps3AudioBuffering") else base.ps3.audioBuffering,
                     audioBufferMs = if (overrides.has("ps3AudioBufferMs")) overrides.getInt("ps3AudioBufferMs") else base.ps3.audioBufferMs,
                     netEnabled = if (overrides.has("ps3NetEnabled")) overrides.getBoolean("ps3NetEnabled") else base.ps3.netEnabled,
@@ -3366,6 +3382,7 @@ data class Settings(
                 shaderChainParamsFromJson(overrides.optJSONObject("shaderChainParams"))
             } else base.shaderChainParams,
             casMode = if (overrides.has("casMode")) overrides.getInt("casMode") else base.casMode,
+            sgsrSharpness = if (overrides.has("sgsrSharpness")) overrides.getInt("sgsrSharpness") else base.sgsrSharpness,
             casSharpness = if (overrides.has("casSharpness")) overrides.getInt("casSharpness") else base.casSharpness,
             loadTextureReplacements = if (overrides.has("loadTextureReplacements")) overrides.getBoolean("loadTextureReplacements") else base.loadTextureReplacements,
             loadTextureReplacementsAsync = if (overrides.has("loadTextureReplacementsAsync")) overrides.getBoolean("loadTextureReplacementsAsync") else base.loadTextureReplacementsAsync,

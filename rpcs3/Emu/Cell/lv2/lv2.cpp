@@ -1246,6 +1246,9 @@ public:
 		{
 			thread_ctrl::wait_until(&sleep_until, 1'000'000);
 
+			// Hang watchdog. This thread is independent of the RSX thread, which is the whole
+			// point: a hang where the RSX spins inside a method handler starves the stall check
+			// that lives on it. Cheap -- two atomic loads and a clock read unless it fires.
 			const bool is_paused = Emu.IsPaused();
 
 			// Force-print all if paused

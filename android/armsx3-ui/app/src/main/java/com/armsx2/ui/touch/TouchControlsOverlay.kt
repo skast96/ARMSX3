@@ -48,6 +48,7 @@ import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.ColorFilter
 import androidx.compose.ui.graphics.painter.BitmapPainter
 import androidx.compose.ui.graphics.painter.Painter
+import androidx.compose.ui.input.pointer.PointerEventPass
 import androidx.compose.ui.input.pointer.PointerInputChange
 import androidx.compose.ui.input.pointer.changedToDown
 import androidx.compose.ui.input.pointer.pointerInput
@@ -184,7 +185,29 @@ fun TouchControlsOverlay() {
     // shouldn't paint over the library cards.
     if (WindowImpl.showLibrary.value && !edit) return
 
-    BoxWithConstraints(Modifier.fillMaxSize()) {
+    BoxWithConstraints(
+        Modifier
+            .fillMaxSize()
+            // Count the fingers on the overlay from one place. INITIAL pass and nothing is
+            // consumed, so every widget below still receives its events exactly as before;
+            // this only watches. It has to live here rather than in the widgets because a
+            // widget only ever reports the instant it is pressed, and the thing that was
+            // breaking is a press that lasts -- a held stick, a held button, a drag.
+            .pointerInput(Unit) {
+                awaitPointerEventScope {
+                    while (true) {
+                        val ev = awaitPointerEvent(PointerEventPass.Initial)
+                        val down = ev.changes.count { it.pressed }
+                        val was = TouchControls.pointersDown.intValue
+                        TouchControls.pointersDown.intValue = down
+                        // Only on the edges. Bumping the tick for every move would cancel and
+                        // relaunch the timer coroutine on each event of a drag, for nothing:
+                        // while a finger is down the timer does not run at all.
+                        if ((down > 0) != (was > 0)) TouchControls.noteTouchInteraction()
+                    }
+                }
+            }
+    ) {
         val w = maxWidth
         val h = maxHeight
         val density = LocalDensity.current
@@ -238,8 +261,14 @@ fun TouchControlsOverlay() {
         // changes (screen tap / on-screen button press) and when they reappear.
         val visMode = TouchControls.visibilityMode.intValue
         val tick = TouchControls.interactionTick.intValue
+        val touching = TouchControls.pointersDown.intValue > 0
         if (visMode in 1..10 && TouchControls.visible.value && !edit) {
-            LaunchedEffect(visMode, tick) {
+            LaunchedEffect(visMode, tick, touching) {
+                // Never count down while a finger is on the screen. This setting means "hide
+                // when I am not using them", and holding a stick through a cutscene-length
+                // stretch of gameplay is use -- it just does not generate press events.
+                // Lifting the last finger re-keys this effect and starts the full delay again.
+                if (touching) return@LaunchedEffect
                 delay(visMode * 1000L)
                 TouchControls.visible.value = false
             }
@@ -410,6 +439,10 @@ fun TouchControlsOverlay() {
             }
         }
 
+        // Momentary state: a panel that stayed collapsed into the next editing session would look
+        // like the controls had gone missing.
+        LaunchedEffect(edit) { if (!edit) TouchControls.editorPanelCollapsed.value = false }
+
         if (edit) {
             // The editor panel is draggable + pinch-resizable (grip handle at its top) so it can be
             // moved off the buttons being edited. Offset is applied on the outer Box (real px); resize
@@ -420,12 +453,33 @@ fun TouchControlsOverlay() {
             val dxState = TouchControls.editorPanelDx(isLandscape)
             val dyState = TouchControls.editorPanelDy(isLandscape)
             val panelScale = TouchControls.editorPanelScale(isLandscape).floatValue
+
+            // Auto-dock: never sit on the same half of the screen as the widget being edited.
+            //
+            // Halves rather than real overlap maths, on purpose. A panel that darts about as
+            // rectangles graze each other is less predictable than one that is simply never on
+            // the side you are working on, and predictability is what makes it stop being
+            // annoying.
+            //
+            // This complements the collapse toggle rather than replacing it: collapse answers "I
+            // cannot select what is under you in the first place", docking answers "I have
+            // selected it and now you are on top of it".
+            val selectedId = TouchControls.selectedButton.value
+            val selectedY = if (selectedId != null) {
+                TouchControls.activeLayout.value.buttons.firstOrNull { it.id == selectedId }?.yFrac
+            } else null
+            val dockBottom = selectedY != null && selectedY < 0.5f
+
             Box(
                 Modifier
-                    .align(Alignment.TopCenter)
-                    .padding(top = 12.dp)
+                    .align(if (dockBottom) Alignment.BottomCenter else Alignment.TopCenter)
+                    .padding(top = if (dockBottom) 0.dp else 12.dp, bottom = if (dockBottom) 12.dp else 0.dp)
                     .offset {
-                        IntOffset(dxState.floatValue.roundToInt(), dyState.floatValue.roundToInt())
+                        // The stored drag offset means "away from the anchored edge", so it has to
+                        // flip sign with the anchor. Applied unchanged while docked to the bottom,
+                        // a +dy the user had nudged in would push the panel straight off-screen.
+                        val dy = if (dockBottom) -dyState.floatValue else dyState.floatValue
+                        IntOffset(dxState.floatValue.roundToInt(), dy.roundToInt())
                     },
             ) {
                 CompositionLocalProvider(
@@ -1907,6 +1961,11 @@ private fun EditToolbar(modifier: Modifier = Modifier) {
             horizontalArrangement = Arrangement.spacedBy(12.dp),
             verticalAlignment = Alignment.CenterVertically,
         ) {
+            // First in the row on purpose: it must be in the same place whether the panel is
+            // open or collapsed, or the way back is somewhere the user has to hunt for.
+            PanelSizeButton(if (TouchControls.editorPanelCollapsed.value) "▼" else "▲") {
+                TouchControls.editorPanelCollapsed.value = !TouchControls.editorPanelCollapsed.value
+            }
             PanelSizeButton("－") {
                 val ls = OverlayDims.last?.let { it.widthPx > it.heightPx } ?: true
                 TouchControls.editorPanelScale(ls).floatValue =
@@ -1952,6 +2011,10 @@ private fun EditToolbar(modifier: Modifier = Modifier) {
                     (TouchControls.editorPanelScale(ls).floatValue + 0.1f).coerceIn(0.6f, 1.35f)
             }
         }
+        // Everything below is what the collapse toggle hides. Column is an inline composable,
+        // so this genuinely skips emitting the rest rather than drawing it invisibly.
+        if (TouchControls.editorPanelCollapsed.value) return@Column
+
         // Scope hint: with no game running the editor edits the GLOBAL Default
         // layout (per-game layouts need a running disc).
         Text(

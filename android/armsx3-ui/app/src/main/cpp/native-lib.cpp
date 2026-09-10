@@ -38,6 +38,7 @@ struct RPCSXApi {
   void (*resume)();
   void (*pause)();
   void (*openHomeMenu)();
+  void (*captureFrame)();
   std::string (*getTitleId)();
   unsigned long long (*getFramePeriodNs)();
   unsigned long long (*getFrameWorkNs)();
@@ -47,6 +48,7 @@ struct RPCSXApi {
   void (*surfaceSizeChanged)(int width, int height);
   void (*setPadSensor)(int port, int x, int y, int z, int g);
   int (*getPadRumble)(int port);
+  void (*setThermals)(float cpu, float gpu, float battery, bool show);
   bool (*usbDeviceEvent)(int fd, int vendorId, int productId, int event);
   bool (*installFw)(JNIEnv *env, int fd, long progressId);
   bool (*isInstallableFile)(jint fd);
@@ -65,6 +67,9 @@ struct RPCSXApi {
   const char *(*rpcnGetConfig)();
   void (*rpcnSetConfig)(std::string_view host, std::string_view npid,
                         std::string_view password, std::string_view token);
+  const char *(*rpcnAddFriend)(std::string_view npid);
+  const char *(*rpcnRemoveFriend)(std::string_view npid);
+  const char *(*rpcnGetFriends)();
   const char *(*rpcnCreateAccount)(std::string_view npid, std::string_view password,
                                    std::string_view onlineName, std::string_view email);
   const char *(*rpcnResendToken)(std::string_view npid, std::string_view password);
@@ -72,6 +77,7 @@ struct RPCSXApi {
   const char *(*rpcnResetPassword)(std::string_view npid, std::string_view token,
                                    std::string_view password);
   const char *(*rpcnTestLogin)();
+  const char *(*rpcnDeleteTrophies)();
   const char *(*rpcnAddHost)(std::string_view desc, std::string_view host);
   const char *(*rpcnDelHost)(std::string_view desc, std::string_view host);
   void (*rpcnResetHosts)();
@@ -151,6 +157,7 @@ struct RPCSXLibrary : RPCSXApi {
     result.kill = reinterpret_cast<decltype(kill)>(dlsym(handle, "_rpcsx_kill"));
     result.resume = reinterpret_cast<decltype(resume)>(dlsym(handle, "_rpcsx_resume"));
     result.pause = reinterpret_cast<decltype(pause)>(dlsym(handle, "_rpcsx_pause"));
+    result.captureFrame = reinterpret_cast<decltype(captureFrame)>(dlsym(handle, "_rpcsx_captureFrame"));
     result.openHomeMenu = reinterpret_cast<decltype(openHomeMenu)>(dlsym(handle, "_rpcsx_openHomeMenu"));
     result.getTitleId = reinterpret_cast<decltype(getTitleId)>(dlsym(handle, "_rpcsx_getTitleId"));
     result.getFramePeriodNs = reinterpret_cast<decltype(getFramePeriodNs)>(dlsym(handle, "_rpcsx_getFramePeriodNs"));
@@ -161,6 +168,7 @@ struct RPCSXLibrary : RPCSXApi {
     result.surfaceSizeChanged = reinterpret_cast<decltype(surfaceSizeChanged)>(dlsym(handle, "_rpcsx_surfaceSizeChanged"));
     result.setPadSensor = reinterpret_cast<decltype(setPadSensor)>(dlsym(handle, "_rpcsx_setPadSensor"));
     result.getPadRumble = reinterpret_cast<decltype(getPadRumble)>(dlsym(handle, "_rpcsx_getPadRumble"));
+    result.setThermals = reinterpret_cast<decltype(setThermals)>(dlsym(handle, "_rpcsx_setThermals"));
     result.usbDeviceEvent = reinterpret_cast<decltype(usbDeviceEvent)>(dlsym(handle, "_rpcsx_usbDeviceEvent"));
     result.installFw = reinterpret_cast<decltype(installFw)>(dlsym(handle, "_rpcsx_installFw"));
     result.isInstallableFile = reinterpret_cast<decltype(isInstallableFile)>(dlsym(handle, "_rpcsx_isInstallableFile"));
@@ -175,11 +183,15 @@ struct RPCSXLibrary : RPCSXApi {
     // such symbols, and the Kotlin side treats a null as "this build cannot do RPCN".
     result.rpcnGetConfig = reinterpret_cast<decltype(rpcnGetConfig)>(dlsym(handle, "_rpcsx_rpcnGetConfig"));
     result.rpcnSetConfig = reinterpret_cast<decltype(rpcnSetConfig)>(dlsym(handle, "_rpcsx_rpcnSetConfig"));
+    result.rpcnAddFriend = reinterpret_cast<decltype(rpcnAddFriend)>(dlsym(handle, "_rpcsx_rpcnAddFriend"));
+    result.rpcnRemoveFriend = reinterpret_cast<decltype(rpcnRemoveFriend)>(dlsym(handle, "_rpcsx_rpcnRemoveFriend"));
+    result.rpcnGetFriends = reinterpret_cast<decltype(rpcnGetFriends)>(dlsym(handle, "_rpcsx_rpcnGetFriends"));
     result.rpcnCreateAccount = reinterpret_cast<decltype(rpcnCreateAccount)>(dlsym(handle, "_rpcsx_rpcnCreateAccount"));
     result.rpcnResendToken = reinterpret_cast<decltype(rpcnResendToken)>(dlsym(handle, "_rpcsx_rpcnResendToken"));
     result.rpcnSendResetToken = reinterpret_cast<decltype(rpcnSendResetToken)>(dlsym(handle, "_rpcsx_rpcnSendResetToken"));
     result.rpcnResetPassword = reinterpret_cast<decltype(rpcnResetPassword)>(dlsym(handle, "_rpcsx_rpcnResetPassword"));
     result.rpcnTestLogin = reinterpret_cast<decltype(rpcnTestLogin)>(dlsym(handle, "_rpcsx_rpcnTestLogin"));
+    result.rpcnDeleteTrophies = reinterpret_cast<decltype(rpcnDeleteTrophies)>(dlsym(handle, "_rpcsx_rpcnDeleteTrophies"));
     result.rpcnAddHost = reinterpret_cast<decltype(rpcnAddHost)>(dlsym(handle, "_rpcsx_rpcnAddHost"));
     result.rpcnDelHost = reinterpret_cast<decltype(rpcnDelHost)>(dlsym(handle, "_rpcsx_rpcnDelHost"));
     result.rpcnResetHosts = reinterpret_cast<decltype(rpcnResetHosts)>(dlsym(handle, "_rpcsx_rpcnResetHosts"));
@@ -449,6 +461,15 @@ extern "C" JNIEXPORT void JNICALL Java_net_rpcsx_RPCSX_openHomeMenu(JNIEnv *env,
   return rpcsxLib.openHomeMenu();
 }
 
+extern "C" JNIEXPORT void JNICALL Java_net_rpcsx_RPCSX_captureFrame(JNIEnv *env,
+                                                                    jobject) {
+  if (rpcsxLib.captureFrame == nullptr) {
+      return;
+  }
+
+  return rpcsxLib.captureFrame();
+}
+
 extern "C" JNIEXPORT jstring JNICALL
 Java_net_rpcsx_RPCSX_getTitleId(JNIEnv *env, jobject) {
   // The core is dlopen()ed separately and may not be up yet -- during
@@ -504,6 +525,18 @@ extern "C" JNIEXPORT jint JNICALL Java_net_rpcsx_RPCSX_getPadRumble(
   }
 
   return rpcsxLib.getPadRumble(port);
+}
+
+// Device temperatures for the perf overlay. Discovery is the app's job -- Android exposes no
+// supported API for SoC temperatures, so it reads the thermal sysfs, whose zone naming and units
+// are vendor-specific -- and this only carries the result across.
+extern "C" JNIEXPORT void JNICALL Java_net_rpcsx_RPCSX_setThermals(
+    JNIEnv *, jobject, jfloat cpu, jfloat gpu, jfloat battery, jboolean show) {
+  if (rpcsxLib.setThermals == nullptr) {
+    return;
+  }
+
+  rpcsxLib.setThermals(cpu, gpu, battery, show == JNI_TRUE);
 }
 
 extern "C" JNIEXPORT void JNICALL Java_net_rpcsx_RPCSX_surfaceSizeChanged(
@@ -1206,6 +1239,38 @@ Java_net_rpcsx_RPCSX_rpcnSetConfig(JNIEnv *env, jobject, jstring host, jstring n
 }
 
 extern "C" JNIEXPORT jstring JNICALL
+Java_net_rpcsx_RPCSX_rpcnAddFriend(JNIEnv *env, jobject, jstring npid) {
+  if (!rpcsxLib.rpcnAddFriend) return rpcn_unavailable(env);
+
+  const char *c = npid ? env->GetStringUTFChars(npid, nullptr) : nullptr;
+  const std::string name = c ? c : "";
+  if (c) env->ReleaseStringUTFChars(npid, c);
+
+  const char *msg = rpcsxLib.rpcnAddFriend(name);
+  return env->NewStringUTF(msg ? msg : "");
+}
+
+extern "C" JNIEXPORT jstring JNICALL
+Java_net_rpcsx_RPCSX_rpcnRemoveFriend(JNIEnv *env, jobject, jstring npid) {
+  if (!rpcsxLib.rpcnRemoveFriend) return rpcn_unavailable(env);
+
+  const char *c = npid ? env->GetStringUTFChars(npid, nullptr) : nullptr;
+  const std::string name = c ? c : "";
+  if (c) env->ReleaseStringUTFChars(npid, c);
+
+  const char *msg = rpcsxLib.rpcnRemoveFriend(name);
+  return env->NewStringUTF(msg ? msg : "");
+}
+
+extern "C" JNIEXPORT jstring JNICALL
+Java_net_rpcsx_RPCSX_rpcnGetFriends(JNIEnv *env, jobject) {
+  if (!rpcsxLib.rpcnGetFriends) return env->NewStringUTF("[]");
+
+  const char *msg = rpcsxLib.rpcnGetFriends();
+  return env->NewStringUTF(msg ? msg : "[]");
+}
+
+extern "C" JNIEXPORT jstring JNICALL
 Java_net_rpcsx_RPCSX_rpcnCreateAccount(JNIEnv *env, jobject, jstring npid,
                                        jstring password, jstring onlineName,
                                        jstring email) {
@@ -1282,5 +1347,12 @@ extern "C" JNIEXPORT jstring JNICALL
 Java_net_rpcsx_RPCSX_rpcnTestLogin(JNIEnv *env, jobject) {
   if (!rpcsxLib.rpcnTestLogin) return rpcn_unavailable(env);
   const char *msg = rpcsxLib.rpcnTestLogin();
+  return env->NewStringUTF(msg ? msg : "");
+}
+
+extern "C" JNIEXPORT jstring JNICALL
+Java_net_rpcsx_RPCSX_rpcnDeleteTrophies(JNIEnv *env, jobject) {
+  if (!rpcsxLib.rpcnDeleteTrophies) return rpcn_unavailable(env);
+  const char *msg = rpcsxLib.rpcnDeleteTrophies();
   return env->NewStringUTF(msg ? msg : "");
 }

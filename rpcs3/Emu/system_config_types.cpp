@@ -724,6 +724,8 @@ void fmt_class_string<output_scaling_mode>::format(std::string& out, u64 arg)
 		// Missing case here would serialise as `unknown` and the mode would
 		// silently never be selectable -- same trap as pad_handler::virtual_pad.
 		case output_scaling_mode::shader: return "Shader chain (librashader)";
+		case output_scaling_mode::sgsr: return "Snapdragon Game Super Resolution";
+		case output_scaling_mode::sgsr_edge: return "Snapdragon Game Super Resolution (Edge Direction)";
 #endif
 		}
 
