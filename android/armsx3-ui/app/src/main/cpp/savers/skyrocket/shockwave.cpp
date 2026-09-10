@@ -19,7 +19,9 @@
  */
 
 
-#include <gl/gl.h>
+// Uppercase GL/: the compat shim directory is savers/compat/GL, and only a
+// case-insensitive filesystem (macOS) forgives <gl/gl.h>.
+#include <GL/gl.h>
 #include <math.h>
 
 #include "shockwave.h"

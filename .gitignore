@@ -32,6 +32,8 @@
 
 /build
 /build-*
+# APKs from the Docker pipeline (android/docker/run.sh)
+/dist
 /lib
 /tmp
 /ipch

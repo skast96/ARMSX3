@@ -26,6 +26,10 @@ plugins {
 android {
     namespace = "com.armsx2"
     compileSdk = 37
+    // Same NDK line the core is built with (see android/configure.sh). Unpinned,
+    // AGP silently falls back to ITS default (28.2 / clang 19) -- and on a machine
+    // that lacks it, auto-downloads it per build.
+    ndkVersion = "29.0.14206865"
 
     defaultConfig {
         applicationId = "com.armsx3"
@@ -261,7 +265,11 @@ dependencies {
     // without this the :discord process aborts with ClassNotFoundException even
     // though the .so links fine. proguard-rules.pro keeps them from being
     // renamed for the same reason.
-    implementation(files("libs/discord_partner_sdk.aar"))
+    // Only when hand-staged (see README): the SDK is proprietary, a fresh
+    // checkout does not have it, and the build must still work without it.
+    if (file("libs/discord_partner_sdk.aar").exists()) {
+        implementation(files("libs/discord_partner_sdk.aar"))
+    }
 
     implementation(libs.androidx.browser)
 

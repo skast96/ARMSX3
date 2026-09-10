@@ -65,6 +65,9 @@ ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
 export ANDROID_HOME JAVA_HOME
 
 CMAKE_BIN="$ANDROID_HOME/cmake/$CMAKE_VERSION/bin"
+# darwin-x86_64 on the Mac, linux-x86_64 in the Docker pipeline -- the NDK
+# names its prebuilt toolchain directory after the HOST, not the target.
+HOST_TAG="$(uname -s | tr '[:upper:]' '[:lower:]')-x86_64"
 UI="$ROOT/android/armsx3-ui"
 JNI_LIBS="$UI/app/src/main/jniLibs/arm64-v8a"
 # Frame generation ships in the github flavor only, so its library lives in that source set.
@@ -149,9 +152,17 @@ build_variant() {
 	# volkLoadDevice() repoint the whole renderer at framegen's device. The consequence for the
 	# build is that it is NOT a dependency of libarmsx3-core.so and will not be built by asking
 	# for it: name it here or ship an APK with frame generation silently missing.
-	PATH="$CMAKE_BIN:$PATH" ninja -C "$build_dir" android/libarmsx3-core.so armsx3_lsfg
+	#
+	# Named only when configured: without the 3rdparty/lsfg/lsfg-vk-android checkout the target
+	# does not exist and naming it is a hard ninja error -- the absent-.so handling below already
+	# covers that build honestly.
+	local targets=(android/libarmsx3-core.so)
+	if grep -q "armsx3_lsfg" "$build_dir/build.ninja"; then
+		targets+=(armsx3_lsfg)
+	fi
+	PATH="$CMAKE_BIN:$PATH" ninja -C "$build_dir" "${targets[@]}"
 
-	local strip="$ANDROID_HOME/ndk/$ndk/toolchains/llvm/prebuilt/darwin-x86_64/bin/llvm-strip"
+	local strip="$ANDROID_HOME/ndk/$ndk/toolchains/llvm/prebuilt/$HOST_TAG/bin/llvm-strip"
 
 	"$strip" --strip-unneeded -o "$JNI_LIBS/libarmsx3-core.so" \
 		"$build_dir/android/libarmsx3-core.so"
@@ -166,7 +177,7 @@ build_variant() {
 		# Only the shim's own entry points may be dynamic: a single leaked vk* symbol means the
 		# dynamic linker can bind the renderer's Vulkan calls to framegen's copies.
 		local leaked
-		leaked=$("$ANDROID_HOME/ndk/$ndk/toolchains/llvm/prebuilt/darwin-x86_64/bin/llvm-nm" \
+		leaked=$("$ANDROID_HOME/ndk/$ndk/toolchains/llvm/prebuilt/$HOST_TAG/bin/llvm-nm" \
 			-D --defined-only "$JNI_LIBS_GITHUB/libarmsx3_lsfg.so" 2>/dev/null | grep -cE "vk[A-Z]|LSFG" || true)
 
 		if [[ "$leaked" != "0" ]]; then

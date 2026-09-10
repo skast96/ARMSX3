@@ -23,11 +23,9 @@
 
 #include "util/types.hpp"
 #include "FrameGenConfig.h"
-#include "Config.h"
 
 #include <algorithm>
 #include <cstddef>
-#include "FrameGenConfig.h"
 
 // yuzu/Eden spell the float aliases this way; PCSX2 only defines the integer ones.
 using f32 = float;
